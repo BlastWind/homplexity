@@ -1,9 +1,12 @@
 {-# LANGUAGE BangPatterns               #-}
 {-# LANGUAGE CPP                        #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE DeriveLift                 #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE ExistentialQuantification #-}
 -- | Classifying messages by severity and filtering them.
 module Language.Haskell.Homplexity.Message (
     Log
@@ -16,6 +19,8 @@ module Language.Haskell.Homplexity.Message (
   , debug
   , message
   , extract
+  , MsgResult (..)
+  , CodeFragmentPhantom (..)
   ) where
 
 import           Control.Arrow
@@ -35,8 +40,15 @@ import           Language.Haskell.TH.Syntax         (Lift (..))
 import           Prelude                            hiding (div, head, id, span)
 import           Text.Blaze.Html4.Strict            hiding (map, style)
 import           Text.Blaze.Html4.Strict.Attributes hiding (span, title)
---import           Text.Blaze.Renderer.Utf8           (renderMarkup)
 #endif
+import           Data.Aeson
+import           Data.Aeson.Types                   (Pair)
+import           Data.Text                          (Text)
+import           Data.ByteString.Lazy               (ByteString)
+import Language.Haskell.Homplexity.CodeFragment (CodeFragment)
+import Data.Typeable (cast)
+import GHC.Generics
+--import           Text.Blaze.Renderer.Utf8           (renderMarkup)
 
 -- | Keeps a set of messages
 newtype Log = Log { unLog :: Seq Message }
@@ -49,17 +61,73 @@ newtype Log = Log { unLog :: Seq Message }
 instance NFData Log where
   rnf = rnf . unLog
 
+instance NFData MsgResult where
+  rnf (MsgResult msgGranularity msgIdentifier msgMetric msgValue) =
+    rnf msgGranularity `seq` rnf msgIdentifier `seq` msgMetric `seq` rnf msgValue 
+
+data CodeFragmentPhantom = forall a. CodeFragment a => CodeFragmentPhantom a
+instance Eq CodeFragmentPhantom where
+  (CodeFragmentPhantom a) == (CodeFragmentPhantom b) =
+    case cast b of
+      Just b' -> a == b'
+      Nothing -> False
+instance Show CodeFragmentPhantom where 
+  show (CodeFragmentPhantom a) = show a
+
+data MsgResult = MsgResult { msgGranularity :: !String
+                       , msgIdentifier  :: !String
+                       , msgMetric      :: !String
+                       , msgValue       :: String
+                      } deriving (Eq)
+
+instance Show MsgResult where
+  show msgResult = show (msgGranularity msgResult) ++ msgIdentifier msgResult ++ show (msgValue msgResult)
+
 -- | Message from analysis
 data Message = Message { msgSeverity :: !Severity
-                       , msgText     :: !String
                        , msgSrc      :: !SrcLoc
+                       , msgResult   :: !MsgResult 
+
                        }
   deriving (Eq)
 
 instance NFData Message where
   rnf Message {msgSrc=SrcLoc{..},..} =
-    rnf msgSeverity `seq` rnf msgText `seq`
+    rnf msgSeverity `seq` rnf msgResult `seq`
     rnf srcFilename `seq` rnf srcLine `seq` rnf srcColumn
+
+instance ToJSON SrcLoc where
+  toJSON srcLoc = Data.Aeson.object
+    [ "filename" .= srcFilename srcLoc
+    , "line"     .= srcLine srcLoc
+    , "column"   .= srcColumn srcLoc
+    ]
+
+instance ToJSON MsgResult where
+  toJSON (MsgResult {..}) = Data.Aeson.object
+    [ "granularity"  .= msgGranularity
+    , "identifier"       .= msgIdentifier
+    , "metric"           .= msgMetric
+    , "value"         .= msgValue
+    ]
+
+instance ToJSON Message where
+  toJSON message = Data.Aeson.object
+    [ "severity" .= msgSeverity message
+    , "result"     .= msgResult message
+    , "src"      .= msgSrc message
+    ]
+
+
+toText :: Severity -> Text
+toText Debug     = "Debug"
+toText Info      = "Info"
+toText Warning   = "Warning"
+toText Critical  = "Critical"
+
+instance ToJSON Severity where
+  toJSON = Data.Aeson.String . toText
+  toEncoding = toEncoding . toText
 
 instance Show Message where
   showsPrec _ Message {msgSrc=loc@SrcLoc{..}, ..} = shows msgSeverity
@@ -70,10 +138,10 @@ instance Show Message where
                                                   -- . shows srcLine
                                                   -- . shows srcColumn
                                                   . (": "++)
-                                                  . (msgText++)
+                                                  . (show msgResult++)
                                                   . ('\n':)
 
-#ifdef HTML_OUTPUT
+
 instance ToMarkup Message where
   toMarkup Message {msgSrc=SrcLoc{..}, ..} =
     p ! classId $
@@ -81,7 +149,7 @@ instance ToMarkup Message where
        <> string ": "
        <> (a ! href (toValue srcFilename) $ (string srcFilename))
        <> string ": "
-       <> string msgText)
+       <> string (show msgResult))
     where
       classId = case msgSeverity of
                      Debug    -> class_ "debug"
@@ -94,14 +162,13 @@ instance ToMarkup Severity where
   toMarkup Info     = span   ! class_ "severity" $ string (show Info)
   toMarkup Warning  = strong ! class_ "severity" $ string (show Warning)
   toMarkup Critical = strong ! class_ "severity" $ string (show Critical)
-#endif
 
 -- | Message severity
 data Severity = Debug
               | Info
               | Warning
               | Critical
-  deriving (Eq, Ord, Read, Show, Enum, Bounded)
+  deriving (Eq, Ord, Read, Show, Enum, Bounded, Generic, Lift)
 
 instance NFData Severity where
   rnf !_a = ()
@@ -110,34 +177,29 @@ instance NFData Severity where
 severityOptions :: String
 severityOptions  = unwords $ map show [minBound..(maxBound::Severity)]
 
-instance Lift Severity where
-  lift Debug    = [| Debug    |]
-  lift Info     = [| Info     |]
-  lift Warning  = [| Warning  |]
-  lift Critical = [| Critical |]
-
 instance FlagType Severity where
   defineFlag n v = defineEQFlag n [| v :: Severity |] "{Debug|Info|Warning|Critical}"
 
 -- | Helper for logging a message with given severity.
-message ::  Severity -> SrcLoc -> String -> Log
-message msgSeverity msgSrc msgText = Log $ Seq.singleton Message {..}
+message :: Severity -> SrcLoc -> MsgResult -> Log
+message msgSeverity msgSrc msgResult = Log $ Seq.singleton Message {..}
+
 
 -- | TODO: automatic inference of the srcLine
 -- | Log a certain error
-critical :: SrcLoc -> String -> Log
+critical :: SrcLoc -> MsgResult -> Log
 critical  = message Critical
 
 -- | Log a warning
-warn  ::  SrcLoc -> String -> Log
+warn  ::  SrcLoc -> MsgResult -> Log
 warn   = message Warning
 
 -- | Log informational message
-info  ::  SrcLoc -> String -> Log
+info  ::  SrcLoc -> MsgResult -> Log
 info   = message Info
 
 -- | Log debugging message
-debug ::  SrcLoc -> String -> Log
+debug ::  SrcLoc -> MsgResult -> Log
 debug  = message Debug
 
 -- TODO: check if this is not too slow
