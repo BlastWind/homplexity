@@ -83,16 +83,16 @@ parseSourceInternal additionalExtensions inputFilename inputFileContents = do
 -- and haskell-src-exts for parsing.
 --
 -- Catches all exceptions and wraps them as @Critical@ log messages.
-parseSource :: [Extension] -> FilePath -> IO (Either Log (Module SrcLoc, [CommentLink]))
+parseSource :: [Extension] -> FilePath -> IO (Either String (Module SrcLoc, [CommentLink]))
 parseSource additionalExtensions inputFilename = do
-  parseResult <- (    readFile inputFilename
+  parseResult <- (    readFile inputFilename -- ! Perhaps I can inject a string directly here.
                   >>= parseSourceInternal additionalExtensions inputFilename
                   >>= evaluate)
       `E.catch` handleException (ParseFailed thisFileLoc)
   case parseResult of
     ParseOk (parsed, comments) -> return $ Right (getPointLoc <$> parsed,
                                                   classifyComments comments)
-    ParseFailed aLoc msg       -> return $ Left $ critical aLoc msg
+    ParseFailed aLoc msg       -> return $ Left "bad!"
   where
     handleException helper (e :: SomeException) = return $ helper $ show e
     thisFileLoc = noLoc { srcFilename = inputFilename }

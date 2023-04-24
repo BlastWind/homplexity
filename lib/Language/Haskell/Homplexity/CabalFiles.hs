@@ -23,6 +23,7 @@ import Language.Haskell.Homplexity.Message
 import Distribution.PackageDescription.Parsec
 import Distribution.Parsec.Warning
 import Distribution.Types.GenericPackageDescription
+import Language.Haskell.Homplexity.CodeFragment (Function(Function))
 #elif MIN_VERSION_Cabal(2,0,0)
 import Distribution.PackageDescription.Parsec
 import Distribution.Types.GenericPackageDescription
@@ -46,12 +47,12 @@ data CabalFile = CabalFile
     deriving (Show)
 
 
-parseCabalFile :: FilePath -> IO (Either Log CabalFile)
+parseCabalFile :: FilePath -> IO (Either String CabalFile)
 parseCabalFile cabalFilePath = do
     cabalFile <- BS.readFile cabalFilePath
     case runParseResult $ parseGenericPackageDescription cabalFile of
         (_, Left err) ->
-            return $ Left $ critical (SrcLoc cabalFilePath 0 0) (show err)
+            return $ Left $ "bad parsing"
         (warns, Right desc) ->
             return $ Right $ CabalFile warns desc
 
