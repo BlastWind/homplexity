@@ -46,6 +46,8 @@ import Text.Blaze.Html4.Strict hiding (map)
 --import Text.Blaze.Html4.Strict.Attributes hiding (title, style)
 #endif
 
+import Data.ByteString.Lazy.UTF8 (toString)
+import Data.Aeson ( encode )
 -- * Command line flag
 defineFlag "v:version" False "Show version"
 
@@ -56,13 +58,10 @@ data OutputFormat =
 #ifdef HTML_OUTPUT
   | HTML
 #endif
+  | JSON
   deriving (Read, Show)
 defineEQFlag "format" [| Text :: OutputFormat |]
-#ifdef HTML_OUTPUT
-  "{Text|HTML}"
-#else
-  "{Text}"
-#endif
+  "{Text|HTML|JSON}"
   "What format to use"
 
 -- | Report to standard error output.
@@ -113,6 +112,7 @@ analyzeModule  = out
                . program
                . (:[])
   where
+    out :: [Message] -> IO ()
     out msgs = case flags_format of
                     Text -> do
                       putStr . concatMap show $ msgs
@@ -124,10 +124,11 @@ analyzeModule  = out
                         style $ string style_head
                         body $ do
                           toHtml . fmap toHtml $ msgs
+#endif
+                    JSON -> putStr . toString . encode $ msgs
     style_head = ".warning  .severity { color: orange; }" <>
                  ".debug    .severity { color: grey;   }" <>
                  ".critical .severity { color: red;    }"
-#endif
 
 -- | Process each separate input file.
 processFile :: [Extension] -> FilePath -> IO Bool
