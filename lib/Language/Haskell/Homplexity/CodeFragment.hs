@@ -11,7 +11,7 @@
 -- | This module generalizes over types of code fragments
 -- that may need to be iterated upon and measured separately.
 module Language.Haskell.Homplexity.CodeFragment (
-    CodeFragment   (fragmentName, fragmentSlice)
+    CodeFragment   (fragmentName, fragmentSlice, fragmentType)
   , occurs
   , occursOf
   , allOccurs
@@ -36,7 +36,7 @@ module Language.Haskell.Homplexity.CodeFragment (
 import           Data.Data
 --import           Data.Functor
 import           Data.Generics.Uniplate.Data
-import           Data.List
+import           Data.List hiding (singleton)
 import           Data.Maybe
 --import           Data.Monoid
 import           Language.Haskell.Exts.SrcLoc
@@ -46,7 +46,7 @@ import           Language.Haskell.Homplexity.Utilities
 
 -- | Program
 newtype Program = Program { allModules :: [Module SrcLoc] }
-  deriving (Data, Typeable, Show)
+  deriving (Data, Typeable, Show, Eq)
 
 -- | Smart constructor for adding cross-references in the future.
 program :: [Module SrcLoc] -> Program
@@ -64,7 +64,7 @@ data Function = Function {
                 , functionRhs       :: [Rhs   SrcLoc]
                 , functionBinds     :: [Binds SrcLoc]
                 }
-  deriving (Data, Typeable, Show)
+  deriving (Data, Typeable, Show, Eq)
 
 -- | Proxy for passing @Function@ type as an argument.
 functionT :: Proxy Function
@@ -75,7 +75,7 @@ data DataDef = DataDef {
                  dataDefName  :: String
                , dataDefCtors :: Either [QualConDecl SrcLoc] [GadtDecl SrcLoc]
                }
-  deriving (Data, Typeable, Show)
+  deriving (Data, Typeable, Show, Eq)
 
 -- | Proxy for passing @DataDef@ type as an argument.
 dataDefT :: Proxy DataDef
@@ -86,7 +86,7 @@ dataDefT  = Proxy
 data TypeSignature = TypeSignature { loc         :: SrcLoc
                                    , identifiers :: [Name SrcLoc]
                                    , theType     ::  Type SrcLoc }
-  deriving (Data, Typeable, Show)
+  deriving (Data, Typeable, Show, Eq)
 
 -- | Proxy for passing @TypeSignature@ type as an argument.
 typeSignatureT :: Proxy TypeSignature
@@ -97,7 +97,7 @@ typeSignatureT  = Proxy
 data TypeClass = TypeClass { tcName  :: String
                            , tcDecls :: Maybe [ClassDecl SrcLoc]
                            }
-  deriving (Data, Typeable, Show)
+  deriving (Data, Typeable, Show, Eq)
 
 -- | Proxy for passing @TypeClass@ type as an argument.
 typeClassT :: Proxy TypeClass
@@ -115,10 +115,11 @@ typeClassT  = Proxy
 -- In order to compute selection, we just need to know which
 -- @AST@ nodes contain the given object, and how to extract
 -- this given object from @AST@, if it is there (@matchAST@).:w
-class (Show c, Data (AST c), Data c) => CodeFragment c where
+class (Eq c, Show c, Data (AST c), Data c) => CodeFragment c where
   type             AST c
   matchAST      :: AST c -> Maybe c
-  fragmentName  ::     c -> String
+  fragmentName  ::     c -> String 
+  fragmentType  ::     c -> String 
   fragmentSlice ::     c -> SrcSlice
   fragmentSlice  = srcSlice
 
@@ -149,7 +150,8 @@ instance CodeFragment Function where
           wildcard PWildCard {} = Just    ".."
           wildcard _            = Nothing
   matchAST _                                          = Nothing
-  fragmentName Function {..} = unwords $ "function":functionNames
+  fragmentName Function {..} = unwords functionNames
+  fragmentType _ = "Function"
 
 instance CodeFragment DataDef where
   type AST DataDef = Decl SrcLoc
@@ -160,7 +162,8 @@ instance CodeFragment DataDef where
     name <- listToMaybe (universeBi declHead :: [Name SrcLoc])
     pure DataDef { dataDefName = unName name, dataDefCtors = Right gadtDecls }
   matchAST _ = Nothing
-  fragmentName DataDef {..} = "data " ++ dataDefName
+  fragmentName DataDef {..} = dataDefName
+  fragmentType _ = "DataDef"
 
 -- | Make a single element list.
 singleton :: a -> [a]
@@ -185,18 +188,19 @@ instance CodeFragment Program where
   type AST Program = Program
   matchAST         = Just
   fragmentName _   = "program"
+  fragmentType _   = "Program"
 
 instance CodeFragment (Module SrcLoc) where
   type AST (Module SrcLoc)= Module SrcLoc
   matchAST = Just
-  fragmentName (Module _ (Just (ModuleHead _ (ModuleName _ theName) _ _)) _ _ _) =
-                "module " ++ theName
+  fragmentName (Module _ (Just (ModuleHead _ (ModuleName _ theName) _ _)) _ _ _) = theName
   fragmentName (Module _  Nothing                                         _ _ _) =
-                "<unnamed module>"
-  fragmentName (XmlPage   _ (ModuleName _ theName) _ _ _ _ _)            = "XML page " ++ theName
+                "unnamed"
+  fragmentName (XmlPage   _ (ModuleName _ theName) _ _ _ _ _)            = theName
   fragmentName (XmlHybrid _ (Just (ModuleHead _ (ModuleName _ theName) _ _))
-                          _ _ _ _ _ _ _) = "module with XML " ++ theName
-  fragmentName (XmlHybrid _  Nothing                  _ _ _ _ _ _ _    ) = "<unnamed module with XML>"
+                          _ _ _ _ _ _ _) = theName
+  fragmentName (XmlHybrid _  Nothing                  _ _ _ _ _ _ _    ) = "unnamed with xml"
+  fragmentType _ = "Module"
 
 -- | Proxy for passing @Module@ type as an argument.
 moduleT :: Proxy (Module SrcLoc)
@@ -206,8 +210,9 @@ instance CodeFragment TypeSignature where
   type AST  TypeSignature = Decl SrcLoc
   matchAST (TypeSig loc identifiers theType) = Just TypeSignature {..}
   matchAST  _                                = Nothing
-  fragmentName TypeSignature {..} = "type signature for "
-                                 ++ intercalate ", " (map unName identifiers)
+  fragmentName TypeSignature {..} = intercalate ", " (map unName identifiers)
+  fragmentType _ = "Type Signature"
+
 
 instance CodeFragment TypeClass where
   type AST TypeClass = Decl SrcLoc
@@ -216,7 +221,8 @@ instance CodeFragment TypeClass where
     = Just $ TypeClass (unName . declHeadName $ declHead) classDecls
   matchAST _ = Nothing
 
-  fragmentName (TypeClass tcName _) = "type class " ++ tcName
+  fragmentName (TypeClass tcName _) = tcName
+  fragmentType _ = "TypeClass"
 
 -- | Unpack @Name@ identifier into a @String@.
 unName :: Name a -> String
