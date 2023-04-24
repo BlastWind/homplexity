@@ -8,6 +8,7 @@
 {-# LANGUAGE TemplateHaskell       #-}
 {-# LANGUAGE UndecidableInstances  #-}
 {-# LANGUAGE ViewPatterns          #-}
+{-# LANGUAGE TypeApplications #-}
 -- | Main module parsing inputs, and running analysis.
 module Language.Haskell.Homplexity.Assessment where
 
@@ -37,12 +38,12 @@ numFunctionsSeverity = Warning
  -}
 
 -- * Showing metric measurements
-measureAll :: Metric m c => Assessment m -> (a -> [c]) -> Proxy m -> Proxy c -> a -> Log
+measureAll :: (Typeable m, Metric m c) => Assessment m -> (a -> [c]) -> Proxy m -> Proxy c -> a -> Log
 measureAll assess generator metricType fragType = mconcat
                                                 . map       (warnOfMeasure assess metricType fragType)
                                                 . generator
 
-measureTopOccurs :: (Data from, Metric m c) => Assessment m -> Proxy m -> Proxy c -> from -> Log
+measureTopOccurs :: (Typeable m, Data from, Metric m c) => Assessment m -> Proxy m -> Proxy c -> from -> Log
 measureTopOccurs assess = measureAll assess occurs
 
 --measureAllOccurs  :: (CodeFragment c, Metric m c) => Severity -> Proxy m -> Proxy c -> Program -> Log
@@ -54,19 +55,16 @@ measureTopOccurs assess = measureAll assess occurs
 -- 2. @Metric@ given as @Proxy@ type.
 -- 3. @CodeFragment@ given as @Proxy@ type.
 -- 4. Program containing @CodeFragment@s.
-measureAllOccurs :: (Data from, Metric m c) => Assessment m -> Proxy m -> Proxy c -> from -> Log
+measureAllOccurs :: (Typeable m, Data from, Metric m c) => Assessment m -> Proxy m -> Proxy c -> from -> Log
 measureAllOccurs assess = measureAll assess allOccurs
 
 -- | Type of functions that convert a @Metric@ into a log message.
 type Assessment m = m -> (Severity, String)
 
-warnOfMeasure :: (CodeFragment c, Metric m c) => Assessment m -> Proxy m -> Proxy c -> c -> Log
+warnOfMeasure :: forall m c. (Typeable m, CodeFragment c, Metric m c) => Assessment m -> Proxy m -> Proxy c -> c -> Log
 warnOfMeasure assess metricType fragType c = message  severity
                                                      (        fragmentLoc  c )
-                                                     (unwords [fragmentName c
-                                                              ,"has"
-                                                              ,show result
-                                                              ,recommendation])
+                                                     (MsgResult (fragmentType c) (fragmentName c) (show (typeRep (Proxy @m))) (show result))
   where
     (severity, recommendation) = assess result
     result = measureFor metricType fragType c
