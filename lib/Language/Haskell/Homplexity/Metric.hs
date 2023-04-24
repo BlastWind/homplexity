@@ -37,7 +37,7 @@ locT :: Proxy LOC
 locT  = Proxy
 
 instance Show LOC where
-  showsPrec _ (LOC l) = shows l . (" lines of code"++)
+  showsPrec _ (LOC l) = shows l
 
 instance Read LOC where
   readsPrec prec str = first LOC <$> readsPrec prec str
