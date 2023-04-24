@@ -45,5 +45,4 @@ measureGadts = sumOf count
 #endif
 
 instance Show RecordFieldsCount where
-  showsPrec _ (RecordFieldsCount rfc) = ("record fields count of " ++)
-                                      . shows rfc
+  showsPrec _ (RecordFieldsCount rfc) = shows rfc

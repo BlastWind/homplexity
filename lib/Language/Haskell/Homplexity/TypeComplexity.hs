@@ -31,8 +31,7 @@ conDepthT :: Proxy ConDepth
 conDepthT  = Proxy
 
 instance Show ConDepth where
-  showsPrec _ (ConDepth cc) = ("type constructor nesting of " ++)
-                            . shows cc
+  showsPrec _ (ConDepth cc) = shows cc
 
 instance Metric ConDepth TypeSignature where
   measure = ConDepth . conDepth . theType
@@ -61,7 +60,6 @@ numFunArgsT  = Proxy
 
 instance Show NumFunArgs where
   showsPrec _ (NumFunArgs cc) =  shows cc
-                              . (" arguments"    ++)
 
 instance Metric NumFunArgs TypeSignature where
   measure = NumFunArgs . numFunArgs . theType

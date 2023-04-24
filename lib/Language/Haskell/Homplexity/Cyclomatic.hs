@@ -32,8 +32,7 @@ cyclomaticT :: Proxy Cyclomatic
 cyclomaticT  = Proxy
 
 instance Show Cyclomatic where
-  showsPrec _ (Cyclomatic cc) = ("cyclomatic complexity of " ++)
-                              . shows cc
+  showsPrec _ (Cyclomatic cc) = shows cc
 
 instance Metric Cyclomatic Function where
   measure x = Cyclomatic . cyclomatic $ x
@@ -75,8 +74,7 @@ instance Metric Depth Function where
   measure (Function {..}) = Depth $ depthOfMatches functionRhs `max` depthOfMatches functionBinds
 
 instance Show Depth where
-  showsPrec _ (Depth d) = ("branching depth of "++)
-                        .  shows d
+  showsPrec _ (Depth d) = shows d
 
 -- | Depth of branching within @Exp@ression.
 depthOfExpr :: Exp SrcLoc -> Int

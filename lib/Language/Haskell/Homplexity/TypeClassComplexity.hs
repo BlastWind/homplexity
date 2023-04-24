@@ -31,8 +31,7 @@ nonTypeDeclCountT :: Proxy NonTypeDeclCount
 nonTypeDeclCountT  = Proxy
 
 instance Show NonTypeDeclCount where
-  showsPrec _ (NonTypeDeclCount mc) = ("method + value count of " ++)
-                                    . shows mc
+  showsPrec _ (NonTypeDeclCount mc) = shows mc
 
 instance Metric NonTypeDeclCount TypeClass where
   measure = NonTypeDeclCount . sumOf method . fromMaybe [] . tcDecls where
@@ -52,8 +51,7 @@ assocTypeCountT :: Proxy AssocTypeCount
 assocTypeCountT  = Proxy
 
 instance Show AssocTypeCount where
-  showsPrec _ (AssocTypeCount atc) = ("associated type count of " ++)
-                                   . shows atc
+  showsPrec _ (AssocTypeCount atc) = shows atc
 
 instance Metric AssocTypeCount TypeClass where
   measure = AssocTypeCount . sumOf assocType . fromMaybe [] . tcDecls where
