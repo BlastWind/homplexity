@@ -6,7 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE UndecidableInstances  #-}
 -- | Parsing of Haskell source files, and error reporting for unparsable files.
-module Language.Haskell.Homplexity.Parse (parseSource, parseTest) where
+module Language.Haskell.Homplexity.Parse (parseSource, parseTest, parseDirectSource) where
 
 import           Control.Exception                    as E
 --import Data.Functor
@@ -96,6 +96,28 @@ parseSource additionalExtensions inputFilename = do
   where
     handleException helper (e :: SomeException) = return $ helper $ show e
     thisFileLoc = noLoc { srcFilename = inputFilename }
+
+
+parseDirectSourceInternal :: [Extension] -> String -> IO (ParseResult (Module SrcSpanInfo, [Comment]))
+parseDirectSourceInternal additionalExtensions inputFileContents = do
+    deCppHsInput <- runCpphs cppHsOptions "dummy" inputFileContents
+    let fileExtensions = maybe [] snd $ readExtensions deCppHsInput
+        extensions     = collapseSameExtensions (additionalExtensions ++ fileExtensions)
+        result         = parseModuleWithComments (mkParseMode "dummy" extensions) deCppHsInput
+    return result
+
+parseDirectSource :: [Extension] -> String -> IO (Either String (Module SrcLoc, [CommentLink]))
+parseDirectSource additionalExtensions inputFileContents = do 
+  parseResult <- (    parseDirectSourceInternal additionalExtensions inputFileContents
+                  >>= evaluate)
+      `E.catch` handleException (ParseFailed thisFileLoc)
+  case parseResult of
+    ParseOk (parsed, comments) -> return $ Right (getPointLoc <$> parsed,
+                                                  classifyComments comments)
+    ParseFailed aLoc msg       -> return $ Left "bad!"
+  where
+    handleException helper (e :: SomeException) = return $ helper $ show e
+    thisFileLoc = noLoc { srcFilename = "dummy" }
 
 
 -- | For use in test suite

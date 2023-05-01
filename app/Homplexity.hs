@@ -50,7 +50,7 @@ import Data.ByteString.Lazy.UTF8 (toString)
 import Data.Aeson ( encode )
 -- * Command line flag
 defineFlag "v:version" False "Show version"
-
+defineFlag "directString" (False::Bool) "Specify to interpret argument directly as source string instead of source path"
 defineFlag "severity" Warning (concat ["level of output verbosity (", severityOptions, ")"])
 
 data OutputFormat =
@@ -137,12 +137,19 @@ processFile additionalExtensions filepath =
         either (\msg              -> report (show msg) >> return False)
                (\(ast, _comments) -> analyzeModule ast >> return True)
 
+-- | Process file contents
+processFileContents :: [Extension] -> String -> IO Bool 
+processFileContents additionalExtensions fileContents =
+    parseDirectSource additionalExtensions fileContents >>=
+        either (\msg              -> report (show msg) >> return False)
+               (\(ast, _comments) -> analyzeModule ast >> return True)
 
 -- | This flag exists only to make sure that HFLags work.
 defineFlag "cabal" "" "Project cabal file"
 
 -- | This flag exists only to make sure that HFLags work.
 defineFlag "fakeFlag" Info "this flag is fake"
+
 
 gitInfoValue ::Either String GitHash.GitInfo
 gitInfoValue  = $$tGitInfoCwdTry
@@ -171,7 +178,7 @@ main = do
                              "or use --help to discover options.")
                      exitFailure
              else do exts <- cabalExtensions
-                     sums <- mapM (processFile exts) =<< concatMapM subTrees args
+                     sums <- mapM ((if flags_directString then processFileContents else processFile) exts) =<< (if flags_directString then return args else concatMapM subTrees args) 
                      let successes  = length $ filter P.id sums
                          totalFiles = length               sums
                      report $ unwords ["Correctly parsed", show successes,
